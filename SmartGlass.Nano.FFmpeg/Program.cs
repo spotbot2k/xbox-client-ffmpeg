@@ -117,10 +117,6 @@ namespace SmartGlass.Nano.FFmpeg
 
             // SDL / FFMPEG setup
             SdlProducer producer = new SdlProducer(nano, audioFormat, videoFormat);
-
-            nano.AudioFrameAvailable += producer.Decoder.ConsumeAudioData;
-            nano.VideoFrameAvailable += producer.Decoder.ConsumeVideoData;
-
             producer.MainLoop();
 
             // finally (dirty)

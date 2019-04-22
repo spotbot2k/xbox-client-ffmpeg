@@ -14,12 +14,11 @@ namespace SmartGlass.Nano.FFmpeg.Producer
         private bool _disposed = false;
         readonly CancellationTokenSource _cancellationTokenSource;
         readonly NanoClient _client;
+        FFmpegDecoder Decoder;
         SdlAudio _audioRenderer;
         SdlVideo _videoRenderer;
         SdlInput Input { get; set; }
         event EventHandler<InputEventArgs> HandleInputEvent;
-
-        public FFmpegDecoder Decoder;
 
         public SdlProducer(NanoClient client, AudioFormat audioFormat, VideoFormat videoFormat)
         {
@@ -64,22 +63,24 @@ namespace SmartGlass.Nano.FFmpeg.Producer
             _audioRenderer.Initialize(1024);
             _videoRenderer.Initialize();
 
-            Decoder.Start();
-
             StartInputFrameSendingTask();
 
+            _client.AudioFrameAvailable += Decoder.DecodeAudioData;
+            _client.VideoFrameAvailable += Decoder.DecodeVideoData;
+
+            int ret;
             while (!_cancellationTokenSource.IsCancellationRequested)
             {
-                if (Decoder.DecodedAudioQueue.Count > 0)
+                ret = Decoder.DequeueDecodedAudioSample(out byte[] audioSample);
+                if (ret == 0)
                 {
-                    var sample = Decoder.DecodedAudioQueue.Dequeue();
-                    _audioRenderer.Update(sample);
+                    _audioRenderer.Update(new PCMSample(audioSample));
                 }
 
-                if (Decoder.DecodedVideoQueue.Count > 0)
+                ret = Decoder.DequeueDecodedVideoFrame(out byte[][] frameData, out int[] lineSizes);
+                if (ret == 0)
                 {
-                    var frame = Decoder.DecodedVideoQueue.Dequeue();
-                    _videoRenderer.Update(frame);
+                    _videoRenderer.Update(new YUVFrame(frameData, lineSizes));
                 }
                     
                 if (SDL.SDL_PollEvent(out SDL.SDL_Event sdlEvent) <= 0)

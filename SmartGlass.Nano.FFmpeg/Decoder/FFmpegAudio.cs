@@ -20,15 +20,8 @@ namespace SmartGlass.Nano.FFmpeg.Decoder
         AVSampleFormat avSourceSampleFormat;
         AVSampleFormat avTargetSampleFormat;
 
-        Queue<AACFrame> encodedDataQueue;
-
-        public event Action<PCMSample> SampleDecoded;
-
-        public void PushData(AACFrame data) => encodedDataQueue.Enqueue(data);
-
         public FFmpegAudio() : base()
         {
-            encodedDataQueue = new Queue<AACFrame>();
         }
 
         public void Initialize(AudioFormat format)
@@ -144,7 +137,7 @@ namespace SmartGlass.Nano.FFmpeg.Decoder
         /// </summary>
         /// <returns>The decoded audio frame.</returns>
         /// <param name="decodedFrame">OUT: Decoded Audio frame.</param>
-        int DequeueDecodedFrame(out byte[] frameData)
+        public int DequeueDecodedFrame(out byte[] frameData)
         {
             frameData = null;
 
@@ -196,37 +189,6 @@ namespace SmartGlass.Nano.FFmpeg.Decoder
 
             ffmpeg.av_frame_unref(pDecodedFrame);
             return 0;
-        }
-
-        public override Thread DecodingThread()
-        {
-            return new Thread(() =>
-            {
-                while (true)
-                {
-                    // Dequeue decoded Frames
-                    int ret = DequeueDecodedFrame(out byte[] audioSampleData);
-                    if (ret == 0)
-                    {
-                        SampleDecoded?.Invoke(new PCMSample(audioSampleData));
-                    }
-
-                    // Enqueue encoded packet
-                    AACFrame frame = null;
-                    try
-                    {
-                        if (encodedDataQueue.Count > 0)
-                        {
-                            frame = encodedDataQueue.Dequeue();
-                            EnqueuePacketForDecoding(frame.RawData);
-                        }
-                    }
-                    catch (InvalidOperationException e)
-                    {
-                        Debug.WriteLine($"FFmpegAudio Loop: {e}");
-                    }
-                }
-            });
         }
     }
 }

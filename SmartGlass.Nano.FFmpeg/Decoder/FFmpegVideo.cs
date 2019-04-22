@@ -25,15 +25,8 @@ namespace SmartGlass.Nano.FFmpeg.Decoder
         AVPixelFormat avTargetPixelFormat;
         AVRational avTimebase;
 
-        Queue<H264Frame> encodedDataQueue;
-
-        public event Action<YUVFrame> FrameDecoded;
-
-        public void PushData(H264Frame data) => encodedDataQueue.Enqueue(data);
-
         public FFmpegVideo() : base()
         {
-            encodedDataQueue = new Queue<H264Frame>();
         }
 
         public void Initialize(VideoFormat format)
@@ -160,7 +153,7 @@ namespace SmartGlass.Nano.FFmpeg.Decoder
         /// </summary>
         /// <returns>The return value of avcodec_receive_frame: 0 on success, smaller 0 on failure </returns>
         /// <param name="decodedFrame">OUT: decoded Frame</param>
-        int DequeueDecodedFrame(out byte[][] frameData, out int[] lineSizes)
+        public int DequeueDecodedFrame(out byte[][] frameData, out int[] lineSizes)
         {
             frameData = new byte[3][];
             lineSizes = new int[] { 0, 0, 0 };
@@ -201,40 +194,6 @@ namespace SmartGlass.Nano.FFmpeg.Decoder
 
             ffmpeg.av_frame_unref(pDecodedFrame);
             return 0;
-        }
-
-        public override Thread DecodingThread()
-        {
-            // Dequeue decoded frames
-            return new Thread(() =>
-            {
-                while (true)
-                {
-                    // Dequeue decoded Frames
-                    int ret = DequeueDecodedFrame(out byte[][] yuvData,
-                                                  out int[] lineSizes);
-                    if (ret == 0)
-                    {
-                        FrameDecoded?.Invoke(new YUVFrame(yuvData, lineSizes));
-                    }
-
-                    // Enqueue encoded packet
-                    H264Frame frame = null;
-                    try
-                    {
-                        if (encodedDataQueue.Count > 0)
-                        {
-                            frame = encodedDataQueue.Dequeue();
-                            if (frame != null)
-                                EnqueuePacketForDecoding(frame.RawData);
-                        }
-                    }
-                    catch (InvalidOperationException e)
-                    {
-                        Debug.WriteLine($"FFmpegVideo Loop: {e}");
-                    }
-                }
-            });
         }
     }
 }

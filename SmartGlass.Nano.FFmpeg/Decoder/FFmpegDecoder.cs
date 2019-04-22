@@ -19,8 +19,6 @@ namespace SmartGlass.Nano.FFmpeg.Decoder
         AudioFormat _audioFormat;
         VideoFormat _videoFormat;
         VideoAssembler _videoAssembler;
-        FFmpegAudio _audioHandler;
-        FFmpegVideo _videoHandler;
 
         bool _audioContextInitialized;
         bool _videoContextInitialized;
@@ -31,8 +29,19 @@ namespace SmartGlass.Nano.FFmpeg.Decoder
         uint _audioFrameId;
         uint _videoFrameId;
 
-        public Queue<YUVFrame> DecodedVideoQueue { get; private set; }
-        public Queue<PCMSample> DecodedAudioQueue  { get; private set; }
+        FFmpegAudio _audioDecoder;
+        FFmpegVideo _videoDecoder;
+
+        public int DequeueDecodedVideoFrame(out byte[][] frameData, out int[] lineSizes)
+        {
+            return _videoDecoder.DequeueDecodedFrame(out frameData, out lineSizes);
+        }
+
+        public int DequeueDecodedAudioSample(out byte[] sampleData)
+        {
+            return _audioDecoder.DequeueDecodedFrame(out sampleData);
+        }
+
 
         public FFmpegDecoder(NanoClient client, AudioFormat audioFormat, VideoFormat videoFormat)
         {
@@ -49,33 +58,17 @@ namespace SmartGlass.Nano.FFmpeg.Decoder
             _audioFrameId = _client.Audio.FrameId;
             _videoFrameId = _client.Video.FrameId;
 
-            _audioHandler = new FFmpegAudio();
-            _videoHandler = new FFmpegVideo();
+            _audioDecoder = new FFmpegAudio();
+            _videoDecoder = new FFmpegVideo();
 
-            _audioHandler.Initialize(_audioFormat);
-            _videoHandler.Initialize(_videoFormat);
-            _audioHandler.CreateDecoderContext();
-            _videoHandler.CreateDecoderContext();
-
-            DecodedAudioQueue = new Queue<PCMSample>();
-            DecodedVideoQueue = new Queue<YUVFrame>();
-
-            // Register queues for decoded video frames / audio samples
-            _audioHandler.SampleDecoded += DecodedAudioQueue.Enqueue;
-            _videoHandler.FrameDecoded += DecodedVideoQueue.Enqueue;
-        }
-
-        /// <summary>
-        /// Start decoding threads
-        /// </summary>
-        public void Start()
-        {
-            _audioHandler.DecodingThread().Start();
-            _videoHandler.DecodingThread().Start();
+            _audioDecoder.Initialize(_audioFormat);
+            _videoDecoder.Initialize(_videoFormat);
+            _audioDecoder.CreateDecoderContext();
+            _videoDecoder.CreateDecoderContext();
         }
 
         /* Called by NanoClient on freshly received data */
-        public void ConsumeAudioData(object sender, AudioDataEventArgs args)
+        public void DecodeAudioData(object sender, AudioDataEventArgs args)
         {
             // TODO: Sorting
             AACFrame frame = AudioAssembler.AssembleAudioFrame(
@@ -84,20 +77,21 @@ namespace SmartGlass.Nano.FFmpeg.Decoder
                 samplingFreq: (int)_audioFormat.SampleRate,
                 channels: (byte)_audioFormat.Channels);
 
-            if (!_audioContextInitialized)
-            {
-                _audioHandler.UpdateCodecParameters(frame.GetCodecSpecificData());
-                _audioContextInitialized = true;
-            }
-
             if (frame == null)
                 return;
 
-            // Enqueue encoded audio data in decoder
-            _audioHandler.PushData(frame);
+            if (!_audioContextInitialized)
+            {
+                // Initialize decoder
+                _audioDecoder.UpdateCodecParameters(frame.GetCodecSpecificData());
+                _audioContextInitialized = true;
+            }
+            if (_audioContextInitialized)
+                // Enqueue encoded audio data in decoder
+                _audioDecoder.EnqueuePacketForDecoding(frame.GetSamplesWithHeader());
         }
 
-        public void ConsumeVideoData(object sender, VideoDataEventArgs args)
+        public void DecodeVideoData(object sender, VideoDataEventArgs args)
         {
             // TODO: Sorting
             var frame = _videoAssembler.AssembleVideoFrame(args.VideoData);
@@ -105,19 +99,15 @@ namespace SmartGlass.Nano.FFmpeg.Decoder
             if (frame == null)
                 return;
 
-            // Enqueue encoded video data in decoder
-            if (_videoContextInitialized)
-                _videoHandler.PushData(frame);
-            else if (frame.PrimaryType == NalUnitType.SEQUENCE_PARAMETER_SET)
+            if (!_videoContextInitialized && frame.PrimaryType == NalUnitType.SEQUENCE_PARAMETER_SET)
             {
-                _videoHandler.UpdateCodecParameters(frame.GetCodecSpecificDataAvcc());
+                // Initialize decoder with PPS & SPS
+                _videoDecoder.UpdateCodecParameters(frame.GetCodecSpecificDataAvcc());
                 _videoContextInitialized = true;
             }
-        }
-
-        public void ConsumeInputFeedbackFrame(object sender, InputFrameEventArgs args)
-        {
-            throw new NotImplementedException();
+            if (_videoContextInitialized)
+                // Enqueue encoded video data in decoder
+                _videoDecoder.EnqueuePacketForDecoding(frame.RawData);
         }
 
         protected virtual void Dispose(bool disposing)
@@ -126,8 +116,8 @@ namespace SmartGlass.Nano.FFmpeg.Decoder
             {
                 if (disposing)
                 {
-                    _audioHandler.Dispose();
-                    _videoHandler.Dispose();
+                    _audioDecoder.Dispose();
+                    _videoDecoder.Dispose();
                 }
                 _disposed = true;
             }

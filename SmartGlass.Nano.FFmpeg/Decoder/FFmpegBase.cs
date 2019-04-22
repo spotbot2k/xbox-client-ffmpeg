@@ -67,12 +67,6 @@ namespace SmartGlass.Nano.FFmpeg.Decoder
         internal abstract SwrContext* CreateResampler(AVCodecContext* codecContext);
 
         /// <summary>
-        /// Start decoding thread
-        /// </summary>
-        /// <returns></returns>
-        public abstract Thread DecodingThread();
-
-        /// <summary>
         /// Inits the Codec context.
         /// </summary>
         /// <param name="encoder">If set to <c>true</c> encoder.</param>
@@ -159,13 +153,14 @@ namespace SmartGlass.Nano.FFmpeg.Decoder
         /// </summary>
         /// <returns>Return value of avcodec_send_packet: 0 on success, -1 on failure</returns>
         /// <param name="data">Encoded Data blob</param>
-        internal int EnqueuePacketForDecoding(byte[] data)
+        public int EnqueuePacketForDecoding(byte[] data)
         {
             if (!this.IsDecoder)
             {
                 Console.WriteLine("QueuePacketForDecoding: Context is not initialized for decoding");
                 return -1;
             }
+
             int ret;
             fixed (byte* pData = data)
             {
@@ -180,7 +175,7 @@ namespace SmartGlass.Nano.FFmpeg.Decoder
             }
 
             ffmpeg.av_packet_unref(pPacket);
-            return 0;
+            return ret;
         }
 
         /*
