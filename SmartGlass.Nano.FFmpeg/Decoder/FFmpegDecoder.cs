@@ -88,7 +88,7 @@ namespace SmartGlass.Nano.FFmpeg.Decoder
             }
             if (_audioContextInitialized)
                 // Enqueue encoded audio data in decoder
-                _audioDecoder.EnqueuePacketForDecoding(frame.GetSamplesWithHeader());
+                _audioDecoder.EnqueuePacketForDecoding(frame.RawData);
         }
 
         public void DecodeVideoData(object sender, VideoDataEventArgs args)
